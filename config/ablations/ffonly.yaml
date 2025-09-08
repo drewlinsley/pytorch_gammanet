@@ -1,0 +1,36 @@
+# Configuration for feedforward-only ablation
+# Disables horizontal connections in fGRU units
+
+model:
+  name: GammaNetFFOnly
+  # Inherit from default config
+  base_config: ../default.yaml
+  
+  # Override model class
+  class: gammanet.models.GammaNetFFOnly
+  
+  # Ablation-specific parameters
+  ablation:
+    type: connectivity
+    description: "Feedforward only - no horizontal connections"
+    horizontal_connections: false
+    topdown_connections: true
+    recurrent_timesteps: true
+
+# Training modifications for ablation
+training:
+  # May need different learning rate without horizontal connections
+  learning_rate: 0.0005
+  
+  # Might converge faster without recurrence
+  num_epochs: 150
+  
+  # Log ablation info
+  experiment_name: "gammanet_ffonly"
+
+# Evaluation settings
+evaluation:
+  # Track ablation-specific metrics
+  additional_metrics:
+    - "layer_sparsity"
+    - "temporal_stability"

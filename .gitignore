@@ -1,0 +1,6 @@
+.venv
+*.pth
+__pycache__
+*.pyc
+*.md
+

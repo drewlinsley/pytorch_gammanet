@@ -1,0 +1,30 @@
+# Configuration for no divisive normalization ablation
+# Removes divisive normalization (alpha = 0)
+
+model:
+  name: GammaNetNoDivisive
+  base_config: ../default.yaml
+  
+  class: gammanet.models.GammaNetNoDivisive
+  
+  ablation:
+    type: gating
+    description: "No divisive normalization"
+    multiplicative_excitation: true
+    additive_excitation: true
+    divisive_normalization: false
+    gates: true
+
+training:
+  learning_rate: 0.001
+  num_epochs: 200
+  
+  # May need batch norm without divisive
+  batch_norm: true
+  
+  experiment_name: "gammanet_no_divisive"
+
+evaluation:
+  additional_metrics:
+    - "gain_control_analysis"
+    - "response_saturation"

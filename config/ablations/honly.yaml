@@ -1,0 +1,28 @@
+# Configuration for horizontal-only ablation
+# Disables top-down connections from decoder
+
+model:
+  name: GammaNetHOnly
+  base_config: ../default.yaml
+  
+  class: gammanet.models.GammaNetHOnly
+  
+  ablation:
+    type: connectivity
+    description: "Horizontal only - no top-down feedback"
+    horizontal_connections: true
+    topdown_connections: false
+    recurrent_timesteps: true
+
+training:
+  learning_rate: 0.001
+  num_epochs: 200
+  
+  # May need more timesteps without top-down
+  # to allow information to propagate
+  experiment_name: "gammanet_honly"
+
+evaluation:
+  additional_metrics:
+    - "feedforward_gradient_flow"
+    - "layer_wise_convergence"

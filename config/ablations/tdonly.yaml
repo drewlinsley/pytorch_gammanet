@@ -1,0 +1,29 @@
+# Configuration for top-down only ablation
+# Disables horizontal connections, keeps top-down
+
+model:
+  name: GammaNetTDOnly
+  base_config: ../default.yaml
+  
+  class: gammanet.models.GammaNetTDOnly
+  
+  ablation:
+    type: connectivity
+    description: "Top-down only - no horizontal recurrence"
+    horizontal_connections: false
+    topdown_connections: true
+    recurrent_timesteps: true
+
+training:
+  learning_rate: 0.0005
+  num_epochs: 200
+  
+  # Might be less stable without horizontal connections
+  gradient_clip_norm: 0.5
+  
+  experiment_name: "gammanet_tdonly"
+
+evaluation:
+  additional_metrics:
+    - "top_down_influence"
+    - "decoder_encoder_alignment"

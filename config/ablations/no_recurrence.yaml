@@ -1,0 +1,32 @@
+# Configuration for non-recurrent ablation
+# Single timestep only
+
+model:
+  name: GammaNetNoRecurrence
+  base_config: ../default.yaml
+  
+  class: gammanet.models.GammaNetNoRecurrence
+  
+  # Override timesteps
+  timesteps: 1
+  
+  ablation:
+    type: connectivity
+    description: "No recurrence - single forward pass"
+    horizontal_connections: true
+    topdown_connections: true
+    recurrent_timesteps: false
+
+training:
+  # Faster training with single timestep
+  learning_rate: 0.002
+  num_epochs: 100
+  
+  # Larger batch size possible
+  batch_size: 16
+  
+  experiment_name: "gammanet_no_recurrence"
+
+evaluation:
+  additional_metrics:
+    - "single_pass_accuracy"

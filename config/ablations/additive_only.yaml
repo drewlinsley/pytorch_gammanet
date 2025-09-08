@@ -1,0 +1,30 @@
+# Configuration for additive-only gating ablation
+# Removes multiplicative interactions (omega = 0)
+
+model:
+  name: GammaNetAdditiveOnly
+  base_config: ../default.yaml
+  
+  class: gammanet.models.GammaNetAdditiveOnly
+  
+  ablation:
+    type: gating
+    description: "Additive only - no multiplicative excitation"
+    multiplicative_excitation: false
+    additive_excitation: true
+    divisive_normalization: true
+    gates: true
+
+training:
+  learning_rate: 0.001
+  num_epochs: 200
+  
+  # May need different initialization
+  weight_init: "xavier_uniform"
+  
+  experiment_name: "gammanet_additive_only"
+
+evaluation:
+  additional_metrics:
+    - "gate_statistics"
+    - "excitation_inhibition_balance"

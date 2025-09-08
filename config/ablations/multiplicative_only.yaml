@@ -1,0 +1,30 @@
+# Configuration for multiplicative-only gating ablation
+# Removes additive interactions (kappa = 0)
+
+model:
+  name: GammaNetMultiplicativeOnly
+  base_config: ../default.yaml
+  
+  class: gammanet.models.GammaNetMultiplicativeOnly
+  
+  ablation:
+    type: gating
+    description: "Multiplicative only - no additive excitation"
+    multiplicative_excitation: true
+    additive_excitation: false
+    divisive_normalization: true
+    gates: true
+
+training:
+  learning_rate: 0.0005
+  num_epochs: 250
+  
+  # Multiplicative only might be less stable
+  gradient_clip_norm: 0.1
+  
+  experiment_name: "gammanet_multiplicative_only"
+
+evaluation:
+  additional_metrics:
+    - "gate_statistics"
+    - "multiplicative_gain_analysis"

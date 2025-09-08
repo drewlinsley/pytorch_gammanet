@@ -1,0 +1,108 @@
+# Default configuration for GammaNet
+
+model:
+  timesteps: 4
+  activation: relu  # relu, elu, gelu
+  normalization: instance  # instance, layer, batch, none
+  use_backbone: true  # Use VGG16 backbone instead of training from scratch
+  model_version: v2  # v1 (original) or v2 (with E/I states)
+  
+  # Layer configuration
+  # Each layer specifies: features, pool, h_kernel (horizontal kernel size)
+  layers:
+    - {features: 24, pool: true,  h_kernel: [9, 9], ff_kernel: [3, 3], ff_repeats: 1}
+    - {features: 28, pool: true,  h_kernel: [7, 7], ff_kernel: [3, 3], ff_repeats: 1}
+    - {features: 36, pool: true,  h_kernel: [5, 5], ff_kernel: [3, 3], ff_repeats: 1}
+    - {features: 48, pool: true,  h_kernel: [3, 3], ff_kernel: [3, 3], ff_repeats: 1}
+    - {features: 64, pool: false, h_kernel: [1, 1], ff_kernel: [3, 3], ff_repeats: 1}
+    - {features: 48, pool: false, h_kernel: [1, 1], ff_kernel: [3, 3], ff_repeats: 1}
+    - {features: 36, pool: false, h_kernel: [1, 1], ff_kernel: [3, 3], ff_repeats: 1}
+    - {features: 28, pool: false, h_kernel: [1, 1], ff_kernel: [3, 3], ff_repeats: 1}
+    - {features: 24, pool: false, h_kernel: [1, 1], ff_kernel: [3, 3], ff_repeats: 1}
+  
+  # fGRU configuration
+  fgru:
+    use_attention: null  # null, se, gala
+    attention_layers: 1
+    symmetric_weights: channel  # null, channel, spatial, spatial_channel
+    multiplicative_excitation: true
+    force_alpha_divisive: false
+    force_omega_nonnegative: false
+    normalization_type: layer  # layer, instance, group, none
+    normalize_c1_c2: true  # Whether to normalize circuit outputs
+    normalize_circuit_outputs: false  # Control internal fGRU normalizations for rate coding
+    use_dynamic_parameters: true  # Use dynamic parameter computation instead of static
+    dynamic_param_activation: softplus  # Activation for dynamic params (softplus, sigmoid)
+    use_symmetric_conv: true  # Whether to use symmetric convolution constraints
+    # NEW v2 features
+    use_separate_ei_states: true  # Use separate excitatory/inhibitory populations
+    gate_norm_position: pre  # Gate normalization position: 'pre' or 'post'
+  
+  # Distribution alignment configuration
+  use_distribution_alignment: true  # Align fGRU outputs to VGG activation distribution
+    
+  # Encoder configuration
+  residual_connections: false  # Whether to use residual connections in encoder  # layer, instance, none
+
+data:
+  dataset: bsds500
+  train_path: /media/data_cifs/pytorch_projects/datasets/BSDS500_crops/data
+  val_path: /media/data_cifs/pytorch_projects/datasets/BSDS500_crops/data
+  test_path: /media/data_cifs/pytorch_projects/datasets/BSDS500/data
+  
+  # Data augmentation
+  augmentation:
+    random_crop: 320
+    random_flip: true
+    color_jitter: false
+  
+  # Preprocessing
+  normalize_mean: [0.485, 0.456, 0.406]
+  normalize_std: [0.229, 0.224, 0.225]
+
+training:
+  batch_size: 1
+  num_epochs: 2000
+  num_workers: 4
+  
+  # Optimizer
+  optimizer: adam
+  learning_rate: 0.0001
+  weight_decay: 0
+  
+  # Learning rate schedule
+  lr_scheduler: exponential  # exponential, plateau, cosine
+  lr_decay: 0.997
+  lr_patience: 10
+  lr_min: 0.000001
+  
+  # Loss
+  loss: bi_bce_hed  # bce, bi_bce_hed, focal, pearson
+  
+  # Gradient clipping
+  grad_clip: 5.0
+  
+  # Checkpointing
+  save_frequency: 5  # epochs
+  validation_frequency: 1  # epochs
+  
+  # Early stopping
+  early_stopping_patience: 30
+  early_stopping_metric: f1_score  # loss, f1_score, ods
+  
+  # Mixed precision
+  mixed_precision: false
+
+# Logging
+logging:
+  log_dir: ./logs
+  tensorboard: true
+  wandb: true
+  wandb_project: gammanet
+  log_images_freq: 5  # Log images every 5 epochs
+  num_images_to_log: 8  # Number of validation images to log
+  
+# Hardware
+device: cuda:2
+num_gpus: 1
+seed: 42

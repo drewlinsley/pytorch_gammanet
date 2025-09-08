@@ -1,0 +1,32 @@
+# Configuration for no-gates ablation
+# Uses fixed gate values (g1=1, g2=0.5)
+
+model:
+  name: GammaNetNoGates
+  base_config: ../default.yaml
+  
+  class: gammanet.models.GammaNetNoGates
+  
+  ablation:
+    type: gating
+    description: "No gates - fixed gate values"
+    multiplicative_excitation: true
+    additive_excitation: true
+    divisive_normalization: true
+    gates: false
+    fixed_g1: 1.0
+    fixed_g2: 0.5
+
+training:
+  learning_rate: 0.001
+  num_epochs: 150
+  
+  # Simpler optimization without gates
+  optimizer: "adam"
+  
+  experiment_name: "gammanet_no_gates"
+
+evaluation:
+  additional_metrics:
+    - "effective_connectivity"
+    - "fixed_gate_dynamics"
