@@ -458,7 +458,6 @@ class fGRUv2(nn.Module):
                 alpha = torch.sigmoid(alpha)
         
         # Apply inhibition using both E and I states
-        print((alpha * h_inh + mu).min(), inh_horizontals.min(), (alpha * h_inh + mu).max(), inh_horizontals.max())
         inhibition = (alpha * h_inh + mu) * inh_horizontals 
         inhibited_signal = F.relu(ff_input - inhibition)  # Rectify to ensure these are rates
         return inhibited_signal
