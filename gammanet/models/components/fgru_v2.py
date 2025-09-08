@@ -39,7 +39,7 @@ class DynamicParametersV2(nn.Module):
         # Takes concatenated [h_exc, h_inh, ff_input] as input (3*channels)
         self.inhibition_net = nn.Sequential(
             nn.Conv2d(channels * 3, channels, kernel_size=1),
-            nn.InstanceNorm(min(8, channels), channels),
+            nn.InstanceNorm2d(min(8, channels), channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(channels, channels * 2, kernel_size=1)  # Output raw alpha and mu
         )
@@ -48,7 +48,7 @@ class DynamicParametersV2(nn.Module):
         # Takes concatenated [inhibited_signal, h_exc] as input (2*channels)
         self.excitation_net = nn.Sequential(
             nn.Conv2d(channels * 2, channels, kernel_size=1),
-            nn.InstanceNorm(min(8, channels), channels),
+            nn.InstanceNorm2d(min(8, channels), channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(channels, channels * 2, kernel_size=1)  # Output raw kappa and omega
         )
