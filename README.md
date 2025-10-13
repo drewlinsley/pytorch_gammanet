@@ -1,6 +1,8 @@
 # PyTorch GammaNet
 
-A PyTorch implementation of GammaNet - a biologically-inspired recurrent neural network architecture for visual processing with separate excitatory/inhibitory populations and horizontal recurrent connections.
+A PyTorch implementation of GammaNet - a biologically-inspired recurrent neural network architecture for visual processing with **separate excitatory/inhibitory populations** and horizontal recurrent connections.
+
+**Featured Model**: **VGG16GammaNetV2** - VGG16 backbone + fGRU with E/I populations
 
 ## Overview
 
@@ -8,14 +10,15 @@ GammaNet incorporates key biological principles from cortical circuits:
 
 - **Separate E/I Populations**: Explicit excitatory and inhibitory neural populations with Dale's law
 - **Horizontal Recurrent Connections**: Within-layer recurrence via fGRU (feedforward Gated Recurrent Unit)
-- **Multi-Timestep Processing**: Iterative refinement over multiple recurrent timesteps
+- **Multi-Timestep Processing**: Iterative refinement over 8 recurrent timesteps
 - **Biologically-Inspired Constraints**: Symmetric weights, divisive normalization, multiplicative excitation
 
 **Key Features**:
+- **VGG16GammaNetV2**: Recommended architecture with E/I populations
 - VGG16 backbone with recurrent fGRU layers
 - Distribution alignment to match VGG activations
 - Support for contour detection, edge detection, and in silico neurophysiology
-- Extensive tools for analyzing learned representations
+- Extensive tools for analyzing learned representations and recurrent dynamics
 
 ---
 
@@ -49,40 +52,133 @@ pip install matplotlib seaborn pandas scipy
 
 ---
 
-## Quick Start
+## Getting Started
 
-### 1. Basic Model Usage
+### Try It Now: Run the Example Script
+
+The easiest way to get started is with our example script:
+
+```bash
+# With a trained checkpoint
+python example_inference.py \
+    --image path/to/your/image.jpg \
+    --checkpoint checkpoints/best_model.pt
+
+# Or try with untrained model (random initialization)
+python example_inference.py --image path/to/your/image.jpg
+```
+
+**Output**: Visualizes input image and detected edges side-by-side, saved to `edge_detection_output.png`
+
+---
+
+### Quick Example: Edge Detection Inference
+
+Here's a complete example using **VGG16GammaNetV2** (recommended) for edge detection:
 
 ```python
 from gammanet.models import VGG16GammaNetV2
 import torch
+from PIL import Image
+import torchvision.transforms as T
+import matplotlib.pyplot as plt
 
-# Create model with default config
+# 1. Create model with E/I populations (v2 architecture)
 config = {
     'layers': ['conv1_1', 'conv1_2', 'pool1', 'conv2_1', 'conv2_2', 'pool2',
                'conv3_1', 'conv3_2', 'conv3_3', 'pool3'],
     'kernel_size': 3,
     'hidden_channels': 48,
-    'num_timesteps': 8,
-    'fgru': {'use_separate_ei_states': True}
+    'num_timesteps': 8,  # 8 recurrent processing steps
+    'fgru': {
+        'use_separate_ei_states': True,  # Separate E/I populations
+        'use_symmetric_conv': True       # Symmetric horizontal connections
+    }
 }
 
 model = VGG16GammaNetV2(config)
 model.eval()
 
-# Forward pass with 8 recurrent timesteps
-input_image = torch.randn(1, 3, 256, 256)
-output = model(input_image)
+# 2. Load and preprocess image
+image = Image.open('example.jpg').convert('RGB')
+transform = T.Compose([
+    T.Resize((256, 256)),
+    T.ToTensor(),
+    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+input_tensor = transform(image).unsqueeze(0)
+
+# 3. Run inference with recurrent processing
+with torch.no_grad():
+    edge_logits = model(input_tensor)
+    edge_prob = torch.sigmoid(edge_logits)
+
+# 4. Visualize results
+fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+axes[0].imshow(image)
+axes[0].set_title('Input Image')
+axes[0].axis('off')
+axes[1].imshow(edge_prob[0, 0].cpu(), cmap='gray')
+axes[1].set_title('Detected Edges')
+axes[1].axis('off')
+plt.tight_layout()
+plt.savefig('edges_output.png')
+print("Saved edge detection result to edges_output.png")
 ```
 
-### 2. Train on BSDS500
+**Why VGG16GammaNetV2?**
+- **Biologically realistic**: Separate excitatory/inhibitory populations
+- **Better for neuroscience**: Can analyze E/I balance and recurrent dynamics
+- **Pre-trained VGG16 backbone**: Transfer learning from ImageNet
+- **8 timesteps of recurrent refinement**: Iteratively improves edge predictions
+
+---
+
+### Training from Scratch
+
+Train on BSDS500 dataset for contour detection:
 
 ```bash
-# Train contour detection model
+# 1. Ensure data paths are set in config/default.yaml
+# 2. Start training
 python scripts/train.py --config config/default.yaml
 
-# Evaluate on test set
-python scripts/evaluate.py --checkpoint checkpoints/best_model.pt
+# 3. Monitor training with tensorboard
+tensorboard --logdir logs/
+
+# 4. Evaluate best checkpoint
+python scripts/evaluate.py \
+    --checkpoint checkpoints/best_model.pt \
+    --data-dir /path/to/BSDS500/data \
+    --split test
+```
+
+**Training details**:
+- **Dataset**: BSDS500 (1,000 augmented crops for training)
+- **Batch size**: 1 (common for edge detection)
+- **Epochs**: 2,000 (small dataset, needs long training)
+- **Learning rate**: 0.0003 (fGRU) / 0.00001 (VGG backbone)
+- **Time**: ~3-5 days on single GPU
+
+---
+
+### Using Pre-trained Weights
+
+```python
+from gammanet.models import VGG16GammaNetV2
+import torch
+
+# Load trained model
+checkpoint = torch.load('checkpoints/best_model.pt', map_location='cuda')
+config = checkpoint['config']
+
+model = VGG16GammaNetV2(config=config['model'])
+model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+model.eval()
+model.cuda()
+
+print(f"Loaded model from epoch {checkpoint['epoch']}")
+print(f"Validation F1: {checkpoint.get('best_metric', 'N/A')}")
 ```
 
 ---
@@ -211,6 +307,7 @@ pytorch_gammanet/
 │
 ├── requirements.txt            # Dependencies
 ├── setup.py                    # Package setup
+├── example_inference.py        # Quick start inference example
 └── README.md                   # This file
 ```
 
@@ -332,7 +429,7 @@ visualize_multi_orientation_optimization(
 - Original implementation with single hidden state per layer
 - Standard recurrent processing
 
-### VGG16GammaNetV2 (v2) ✨ **Recommended**
+### VGG16GammaNetV2 (v2) - Recommended
 - **Separate E/I populations** with Dale's law
 - More biologically realistic
 - Better for neurophysiology experiments
@@ -378,7 +475,8 @@ MIT License - See LICENSE file for details
 
 ## Troubleshooting
 
-### CUDA Out of Memory
+**CUDA Out of Memory**
+
 Reduce batch size or number of timesteps:
 ```yaml
 training:
@@ -387,14 +485,16 @@ model:
   timesteps: 4
 ```
 
-### Slow Training
+**Slow Training**
+
 Enable mixed precision:
 ```yaml
 training:
   mixed_precision: true
 ```
 
-### Poor Convergence
+**Poor Convergence**
+
 - Check learning rates (VGG backbone should be 10x lower than fGRU)
 - Verify data paths are correct
 - Ensure BSDS500 images are properly normalized
