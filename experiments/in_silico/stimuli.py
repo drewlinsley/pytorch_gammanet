@@ -122,32 +122,43 @@ class OrientedGratingStimuli(BaseStimulus):
         
     def generate_stimulus_set(self,
                             orientations: List[float],
-                            spatial_frequencies: List[float] = [4.0],
+                            spatial_frequencies: List[float] = [10.0, 20.0, 30.0, 40.0],
                             contrasts: List[float] = [1.0],
-                            radius: int = 50) -> List[Tuple[np.ndarray, StimulusMetadata]]:
+                            stimulus_diameter: Optional[int] = None) -> List[Tuple[np.ndarray, StimulusMetadata]]:
         """Generate set of oriented gratings.
-        
+
         Args:
             orientations: List of orientations in degrees
             spatial_frequencies: List of spatial frequencies
             contrasts: List of contrasts
-            radius: Radius of circular aperture
-            
+            stimulus_diameter: Diameter of circular aperture in pixels (at input resolution).
+                             If None, uses full image (no masking).
+
         Returns:
             List of (stimulus, metadata) tuples
         """
         stimuli = []
-        mask = self.create_circular_mask(radius)
-        
+
+        # Create mask if diameter specified
+        if stimulus_diameter is not None:
+            radius = stimulus_diameter // 2
+            mask = self.create_circular_mask(radius)
+        else:
+            mask = np.ones(self.size, dtype=np.float32)
+            radius = min(self.size) // 2  # For metadata
+
         for ori in orientations:
             for sf in spatial_frequencies:
                 for contrast in contrasts:
-                    # Create grating
+                    # Create grating (already has contrast applied, in [-contrast, +contrast] range)
                     grating = self.create_grating(ori, sf, contrast=contrast)
-                    
-                    # Apply mask
-                    stimulus = grating * mask
-                    
+
+                    # Apply mask and normalize to [0, 1] with mean=0.5 (grey background)
+                    # grating is in [-contrast, +contrast], multiply by 0.5 to get [-0.5*contrast, +0.5*contrast]
+                    # then add 0.5 to center at grey: [0.5 - 0.5*contrast, 0.5 + 0.5*contrast]
+                    # Outside mask: set to 0.5 (grey background)
+                    stimulus = grating * mask * 0.5 + 0.5
+
                     # Create metadata
                     metadata = StimulusMetadata(
                         stimulus_type="oriented_grating",
@@ -155,22 +166,26 @@ class OrientedGratingStimuli(BaseStimulus):
                         contrast=contrast,
                         spatial_frequency=sf,
                         position=self.center,
-                        size=(radius*2, radius*2),
-                        parameters={"aperture_radius": radius}
+                        size=(radius*2, radius*2) if stimulus_diameter else self.size,
+                        parameters={
+                            "aperture_diameter": stimulus_diameter,
+                            "aperture_radius": radius
+                        }
                     )
-                    
+
                     stimuli.append((stimulus, metadata))
-                    
+
         return stimuli
 
 
 class KapadiaStimuli(BaseStimulus):
     """Generate stimuli for Kapadia et al. (1995) collinear facilitation experiments."""
-    
-    def __init__(self, size: Tuple[int, int] = (256, 256)):
+
+    def __init__(self, size: Tuple[int, int] = (256, 256),
+                 bar_length: int = 20, bar_width: int = 5):
         super().__init__(size)
-        self.bar_length = 12  # pixels
-        self.bar_width = 3    # pixels
+        self.bar_length = bar_length  # pixels (default 20)
+        self.bar_width = bar_width    # pixels (default 5)
         
     def create_bar(self, orientation: float, length: int, width: int) -> np.ndarray:
         """Create oriented bar stimulus."""
@@ -190,74 +205,108 @@ class KapadiaStimuli(BaseStimulus):
                             orientations: List[float] = [0, 45, 90, 135],
                             flanker_distances: List[int] = [15, 20, 25, 30, 35, 40],
                             flanker_angles: List[float] = [0, 15, 30, 45, 60, 75, 90],
-                            contrasts: List[float] = [0.2, 0.6]) -> List[Tuple[np.ndarray, StimulusMetadata]]:
+                            contrasts: List[float] = [0.2, 0.6],
+                            center_only: bool = False) -> List[Tuple[np.ndarray, StimulusMetadata]]:
         """Generate Kapadia-style collinear facilitation stimuli.
-        
+
         Args:
             orientations: Target orientations
             flanker_distances: Distances between target and flankers (pixels)
             flanker_angles: Relative angles of flankers
             contrasts: [target_contrast, flanker_contrast]
-            
+            center_only: If True, only generate center bar without flankers
+
         Returns:
             List of (stimulus, metadata) tuples
         """
         stimuli = []
         target_contrast, flanker_contrast = contrasts
-        
+
         for ori in orientations:
             # Create target bar
             target = self.create_bar(ori, self.bar_length, self.bar_width)
-            
-            for distance in flanker_distances:
-                for angle in flanker_angles:
-                    # Create blank canvas
-                    stimulus = np.zeros(self.size)
-                    
-                    # Place target at center
-                    target_y = self.center[0] - target.shape[0] // 2
-                    target_x = self.center[1] - target.shape[1] // 2
-                    
-                    # Add target with contrast
-                    stimulus[target_y:target_y+target.shape[0], 
-                           target_x:target_x+target.shape[1]] = target * target_contrast
-                    
-                    # Calculate flanker positions
-                    # Flankers are placed along the axis of the target orientation
-                    dx = np.cos(np.radians(ori)) * distance
-                    dy = np.sin(np.radians(ori)) * distance
-                    
-                    # Create flankers with relative angle
-                    flanker = self.create_bar(ori + angle, self.bar_length, self.bar_width)
-                    
-                    # Place flankers
-                    for sign in [-1, 1]:  # Both sides
-                        flanker_y = int(self.center[0] + sign * dy - flanker.shape[0] // 2)
-                        flanker_x = int(self.center[1] + sign * dx - flanker.shape[1] // 2)
-                        
-                        # Check bounds
-                        if (0 <= flanker_y < self.size[0] - flanker.shape[0] and
-                            0 <= flanker_x < self.size[1] - flanker.shape[1]):
-                            stimulus[flanker_y:flanker_y+flanker.shape[0],
-                                   flanker_x:flanker_x+flanker.shape[1]] = flanker * flanker_contrast
-                    
-                    # Create metadata
-                    metadata = StimulusMetadata(
-                        stimulus_type="kapadia_collinear",
-                        orientation=ori,
-                        contrast=target_contrast,
-                        spatial_frequency=1.0 / self.bar_length,
-                        position=self.center,
-                        size=(self.bar_length, self.bar_width),
-                        parameters={
-                            "flanker_distance": distance,
-                            "flanker_angle": angle,
-                            "flanker_contrast": flanker_contrast
-                        }
-                    )
-                    
-                    stimuli.append((stimulus, metadata))
-                    
+
+            if center_only:
+                # Generate only center bar without flankers
+                stimulus = np.zeros(self.size)
+
+                # Place target at center
+                target_y = self.center[0] - target.shape[0] // 2
+                target_x = self.center[1] - target.shape[1] // 2
+
+                # Add target with contrast
+                stimulus[target_y:target_y+target.shape[0],
+                       target_x:target_x+target.shape[1]] = target * target_contrast
+
+                # Create metadata
+                metadata = StimulusMetadata(
+                    stimulus_type="kapadia_center_only",
+                    orientation=ori,
+                    contrast=target_contrast,
+                    spatial_frequency=None,
+                    position=self.center,
+                    size=(self.bar_length, self.bar_width),
+                    parameters={
+                        "flanker_distance": 0,
+                        "flanker_angle": 0,
+                        "flanker_contrast": 0,
+                        "bar_length": self.bar_length,
+                        "bar_width": self.bar_width
+                    }
+                )
+
+                stimuli.append((stimulus, metadata))
+            else:
+                # Generate stimuli with flankers
+                for distance in flanker_distances:
+                    for angle in flanker_angles:
+                        # Create blank canvas
+                        stimulus = np.zeros(self.size)
+
+                        # Place target at center
+                        target_y = self.center[0] - target.shape[0] // 2
+                        target_x = self.center[1] - target.shape[1] // 2
+
+                        # Add target with contrast
+                        stimulus[target_y:target_y+target.shape[0],
+                               target_x:target_x+target.shape[1]] = target * target_contrast
+
+                        # Calculate flanker positions
+                        # Flankers are placed along the axis of the target orientation
+                        dx = np.cos(np.radians(ori)) * distance
+                        dy = np.sin(np.radians(ori)) * distance
+
+                        # Create flankers with relative angle
+                        flanker = self.create_bar(ori + angle, self.bar_length, self.bar_width)
+
+                        # Place flankers
+                        for sign in [-1, 1]:  # Both sides
+                            flanker_y = int(self.center[0] + sign * dy - flanker.shape[0] // 2)
+                            flanker_x = int(self.center[1] + sign * dx - flanker.shape[1] // 2)
+
+                            # Check bounds
+                            if (0 <= flanker_y < self.size[0] - flanker.shape[0] and
+                                0 <= flanker_x < self.size[1] - flanker.shape[1]):
+                                stimulus[flanker_y:flanker_y+flanker.shape[0],
+                                       flanker_x:flanker_x+flanker.shape[1]] = flanker * flanker_contrast
+
+                        # Create metadata
+                        metadata = StimulusMetadata(
+                            stimulus_type="kapadia_collinear",
+                            orientation=ori,
+                            contrast=target_contrast,
+                            spatial_frequency=1.0 / self.bar_length,
+                            position=self.center,
+                            size=(self.bar_length, self.bar_width),
+                            parameters={
+                                "flanker_distance": distance,
+                                "flanker_angle": angle,
+                                "flanker_contrast": flanker_contrast
+                            }
+                        )
+
+                        stimuli.append((stimulus, metadata))
+
         return stimuli
 
 

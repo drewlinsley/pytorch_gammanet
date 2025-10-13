@@ -17,10 +17,28 @@ import json
 from datetime import datetime
 from tqdm import tqdm
 
+
+def convert_to_json_serializable(obj):
+    """Convert numpy types to Python types for JSON serialization."""
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, (np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, (np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_to_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_json_serializable(v) for v in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_to_json_serializable(v) for v in obj)
+    else:
+        return obj
+
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
-from gammanet.models import GammaNet
+from gammanet.models import GammaNet, VGG16GammaNet, VGG16GammaNetV2
 from experiments.in_silico import (
     # Stimuli
     OrientedGratingStimuli,
@@ -46,6 +64,7 @@ from experiments.in_silico import (
     
     # Visualization
     plot_tuning_curves,
+    plot_contrast_response,
     plot_spatial_interactions,
     plot_model_neural_comparison,
     create_summary_figure
@@ -79,21 +98,39 @@ def parse_args():
 
 def load_model(checkpoint_path: str, device: str) -> torch.nn.Module:
     """Load model from checkpoint."""
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     config = checkpoint['config']
-    
-    # Create model
-    model = GammaNet(
-        config=config['model'],
-        input_channels=3,
-        output_channels=1
-    )
-    
-    # Load weights
-    model.load_state_dict(checkpoint['model_state_dict'])
+
+    # Determine which model to use based on config
+    model_config = config['model']
+    use_backbone = model_config.get('use_backbone', False)
+    model_version = model_config.get('model_version', 'v1')
+
+    # Create appropriate model
+    if use_backbone:
+        if model_version == 'v2':
+            model = VGG16GammaNetV2(config=model_config)
+        else:
+            model = VGG16GammaNet(config=model_config)
+    else:
+        model = GammaNet(
+            config=model_config,
+            input_channels=3,
+            output_channels=1
+        )
+
+    # Load weights (filter out hidden state buffers)
+    state_dict = checkpoint['model_state_dict']
+    # Remove hidden state buffers that were saved during training
+    filtered_state_dict = {k: v for k, v in state_dict.items()
+                           if not (k.startswith('h_block') or k.startswith('h0_') or
+                                   k.startswith('h1_') or k.startswith('h2_') or
+                                   k.startswith('h3_') or k.startswith('td_h'))}
+
+    model.load_state_dict(filtered_state_dict, strict=False)
     model = model.to(device)
     model.eval()
-    
+
     return model, config
 
 
@@ -101,44 +138,74 @@ def run_orientation_tuning(model, extractor, target_layer, device, output_dir):
     """Run orientation tuning experiment."""
     print("\nRunning orientation tuning experiment...")
     
-    # Generate stimuli
+    # Generate stimuli with multiple biologically plausible spatial frequencies
     stim_generator = OrientedGratingStimuli()
     orientations = np.arange(0, 180, 15)
-    stimuli = stim_generator.generate_stimulus_set(
-        orientations=orientations,
-        spatial_frequencies=[4.0],
-        contrasts=[0.5]
-    )
-    
-    # Create batch
-    stim_batch, metadata = create_stimulus_batch(stimuli)
-    stim_batch = stim_batch.to(device)
-    
-    # Extract responses
-    extractor.register_hooks([target_layer])
-    responses = extractor.extract_responses(stim_batch)
-    
-    # Get population response
-    pop_response = extractor.get_population_response(
-        responses, target_layer, spatial_pool="center"
-    )
-    
-    # Average across neurons and timesteps
-    mean_response = pop_response.mean(axis=(1, 2))
+    # Test multiple spatial frequencies (cycles per image)
+    # This corresponds to 0.04-0.20 cycles/pixel for 256x256 images
+    spatial_frequencies = [10.0, 15.0, 20.0, 30.0, 40.0, 50.0]
+
+    all_responses = []
+    for sf in spatial_frequencies:
+        stimuli = stim_generator.generate_stimulus_set(
+            orientations=orientations,
+            spatial_frequencies=[sf],
+            contrasts=[0.5]
+        )
+
+        # Create batch
+        stim_batch, metadata = create_stimulus_batch(stimuli)
+        stim_batch = stim_batch.to(device)
+
+        # Reset hidden states for clean forward pass
+        model.reset_hidden_states()
+
+        # Extract responses
+        responses = extractor.extract_responses(stim_batch)
+
+        # Get population response
+        pop_response = extractor.get_population_response(
+            responses, target_layer, spatial_pool="center"
+        )
+
+        # Average across neurons and timesteps
+        mean_response = pop_response.mean(axis=(1, 2))
+        all_responses.append((sf, mean_response))
+
+    # Find optimal spatial frequency (one with highest variance/selectivity)
+    best_sf = None
+    best_variance = 0
+    best_responses = None
+
+    for sf, resp in all_responses:
+        variance = np.var(resp)
+        if variance > best_variance:
+            best_variance = variance
+            best_sf = sf
+            best_responses = resp
+
+    print(f"Optimal spatial frequency: {best_sf} cycles/image")
+
+    # Use best responses for tuning curve analysis
+    mean_response = best_responses
     
     # Analyze tuning
     analyzer = OrientationTuningAnalyzer()
     tuning_curve = analyzer.fit_tuning_curve(orientations, mean_response)
     
-    # Save results
+    # Save results (convert numpy types to Python types for JSON)
     results = {
         "orientations": orientations.tolist(),
         "responses": mean_response.tolist(),
+        "optimal_spatial_frequency": float(best_sf),
+        "spatial_frequency_responses": {
+            str(sf): resp.tolist() for sf, resp in all_responses
+        },
         "tuning_curve": {
-            "preferred_orientation": tuning_curve.preferred_value,
-            "bandwidth": tuning_curve.bandwidth,
-            "r_squared": tuning_curve.r_squared,
-            "modulation_index": tuning_curve.modulation_index
+            "preferred_orientation": float(tuning_curve.preferred_value) if tuning_curve.preferred_value is not None else None,
+            "bandwidth": float(tuning_curve.bandwidth) if tuning_curve.bandwidth is not None else None,
+            "r_squared": float(tuning_curve.r_squared) if tuning_curve.r_squared is not None else None,
+            "modulation_index": float(tuning_curve.modulation_index) if tuning_curve.modulation_index is not None else None
         }
     }
     
@@ -172,6 +239,9 @@ def run_contrast_response(model, extractor, target_layer, device, output_dir):
     stim_batch, metadata = create_stimulus_batch(stimuli)
     stim_batch = stim_batch.to(device)
     
+    # Reset hidden states for clean forward pass
+    model.reset_hidden_states()
+
     # Extract responses
     responses = extractor.extract_responses(stim_batch)
     pop_response = extractor.get_population_response(
@@ -188,10 +258,10 @@ def run_contrast_response(model, extractor, target_layer, device, output_dir):
         "contrasts": contrasts.tolist(),
         "responses": mean_response.tolist(),
         "contrast_response_fit": {
-            "c50": crf.fit_params["c50"] if crf.fit_params else None,
-            "r_max": crf.fit_params["r_max"] if crf.fit_params else None,
-            "n": crf.fit_params["n"] if crf.fit_params else None,
-            "r_squared": crf.r_squared
+            "c50": float(crf.fit_params["c50"]) if crf.fit_params and "c50" in crf.fit_params else None,
+            "r_max": float(crf.fit_params["r_max"]) if crf.fit_params and "r_max" in crf.fit_params else None,
+            "n": float(crf.fit_params["n"]) if crf.fit_params and "n" in crf.fit_params else None,
+            "r_squared": float(crf.r_squared) if crf.r_squared is not None else None
         }
     }
     
@@ -234,7 +304,10 @@ def run_kapadia_experiment(model, extractor, target_layer, device, output_dir):
     for i, (stim, meta) in enumerate(stimuli):
         stim_tensor = torch.from_numpy(stim).float().unsqueeze(0).unsqueeze(0)
         stim_tensor = stim_tensor.repeat(1, 3, 1, 1).to(device)
-        
+
+        # Reset hidden states for clean forward pass
+        model.reset_hidden_states()
+
         responses = extractor.extract_responses(stim_tensor)
         pop_response = extractor.get_population_response(
             responses, target_layer, spatial_pool="center"
@@ -273,7 +346,7 @@ def run_kapadia_experiment(model, extractor, target_layer, device, output_dir):
         "model_facilitation_orthogonal": facilitation_orthogonal.tolist(),
         "neural_facilitation_collinear": neural_data["facilitation_collinear"].tolist(),
         "neural_facilitation_orthogonal": neural_data["facilitation_orthogonal"].tolist(),
-        "similarity_metrics": similarity
+        "similarity_metrics": convert_to_json_serializable(similarity)
     }
     
     # Plot comparison
@@ -324,7 +397,10 @@ def run_kinoshita_experiment(model, extractor, target_layer, device, output_dir)
     for stim, meta in stimuli:
         stim_tensor = torch.from_numpy(stim).float().unsqueeze(0).unsqueeze(0)
         stim_tensor = stim_tensor.repeat(1, 3, 1, 1).to(device)
-        
+
+        # Reset hidden states for clean forward pass
+        model.reset_hidden_states()
+
         responses = extractor.extract_responses(stim_tensor)
         pop_response = extractor.get_population_response(
             responses, target_layer, spatial_pool="center"
@@ -371,12 +447,12 @@ def run_kinoshita_experiment(model, extractor, target_layer, device, output_dir)
     results = {
         "orientation_differences": ori_diffs,
         "model_normalized_responses": normalized_responses.tolist(),
-        "model_suppression_indices": suppression_indices,
+        "model_suppression_indices": [float(si) for si in suppression_indices],
         "neural_data": {
             "orientation_differences": neural_data["orientation_differences"].tolist(),
             "normalized_responses": neural_data["normalized_response"].tolist()
         },
-        "similarity_metrics": similarity
+        "similarity_metrics": convert_to_json_serializable(similarity)
     }
     
     # Plot
@@ -384,7 +460,11 @@ def run_kinoshita_experiment(model, extractor, target_layer, device, output_dir)
         "orientation_tuning": {
             "orientation_differences": np.array(ori_diffs),
             "normalized_responses": normalized_responses,
-            "model_responses": model_at_neural
+        },
+        "neural_comparison": {
+            "orientation_differences": neural_data["orientation_differences"],
+            "model_responses": model_at_neural,
+            "neural_responses": neural_data["normalized_response"]
         }
     }, title="Kinoshita Surround Modulation",
     save_path=output_dir / "kinoshita_surround.png")
@@ -411,15 +491,19 @@ def main():
     
     # Create response extractor
     extractor = ResponseExtractor(model)
-    
+
     # Determine target layer
     if args.layer:
         target_layer = args.layer
     else:
         # Auto-detect V1-like layers
         v1_layers = get_v1_like_layers(model)
-        target_layer = v1_layers[1]  # Use second encoder layer
-        print(f"Using layer: {target_layer}")
+        target_layer = v1_layers[1] if len(v1_layers) > 1 else v1_layers[0]
+
+    print(f"Using layer: {target_layer}")
+
+    # Register hooks for the target layer
+    extractor.register_hooks([target_layer])
     
     # Run experiments
     all_results = {

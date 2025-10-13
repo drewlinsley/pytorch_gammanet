@@ -23,8 +23,8 @@ model:
   # fGRU configuration
   fgru:
     use_attention: null  # null, se, gala
-    attention_layers: 1
-    symmetric_weights: channel  # null, channel, spatial, spatial_channel
+    attention_layers: 0
+    symmetric_weights: null  # null, channel, spatial, spatial_channel
     multiplicative_excitation: true
     force_alpha_divisive: false
     force_omega_nonnegative: false
@@ -67,7 +67,8 @@ training:
   
   # Optimizer
   optimizer: adam
-  learning_rate: 0.0001
+  learning_rate: 0.0003  # Default learning rate for fGRU layers
+  vgg_learning_rate: 0.00001  # Learning rate for VGG backbone (10x lower)
   weight_decay: 0
   
   # Learning rate schedule
@@ -106,3 +107,4 @@ logging:
 device: cuda:2
 num_gpus: 1
 seed: 42
+

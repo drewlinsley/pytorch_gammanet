@@ -11,33 +11,37 @@ from sklearn.metrics import precision_recall_curve, auc
 import cv2
 
 
-def compute_edge_f1(pred: np.ndarray, gt: np.ndarray, threshold: float) -> Tuple[float, float, float]:
+def compute_edge_f1(pred: np.ndarray, gt: np.ndarray, threshold: float, gt_threshold: float = 0.3) -> Tuple[float, float, float]:
     """Compute F1 score for edge detection at a specific threshold.
-    
+
     Args:
         pred: Predicted edge map [H, W]
-        gt: Ground truth edge map [H, W]
-        threshold: Threshold for binarization
-        
+        gt: Ground truth edge map [H, W] (continuous valued 0-1)
+        threshold: Threshold for binarization of predictions
+        gt_threshold: Threshold for binarization of ground truth (default 0.3 for BSDS)
+
     Returns:
         precision, recall, f1 score
     """
     # Binarize predictions
     pred_binary = (pred > threshold).astype(np.float32)
-    
+
+    # Binarize ground truth (threshold at 0.3 for BSDS protocol)
+    gt_binary = (gt > gt_threshold).astype(np.uint8)
+
     # Compute matches within tolerance (dilate GT for tolerance)
     kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
-    gt_dilated = cv2.dilate(gt.astype(np.uint8), kernel, iterations=1)
-    
+    gt_dilated = cv2.dilate(gt_binary, kernel, iterations=1)
+
     # True positives: predicted edges that match dilated GT
     tp = np.sum(pred_binary * gt_dilated)
-    
+
     # False positives: predicted edges that don't match dilated GT
     fp = np.sum(pred_binary * (1 - gt_dilated))
-    
+
     # False negatives: GT edges not covered by predictions
     pred_dilated = cv2.dilate(pred_binary.astype(np.uint8), kernel, iterations=1)
-    fn = np.sum(gt * (1 - pred_dilated))
+    fn = np.sum(gt_binary * (1 - pred_dilated))
     
     # Compute metrics
     precision = tp / (tp + fp + 1e-5)

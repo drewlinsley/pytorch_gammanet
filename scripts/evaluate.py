@@ -19,7 +19,7 @@ from datetime import datetime
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
-from gammanet.models import GammaNet
+from gammanet.models import GammaNet, VGG16GammaNet, VGG16GammaNetV2
 from gammanet.data import BSDS500Dataset, get_val_transforms, get_tta_transforms
 from gammanet.utils import compute_ods_ois, EdgeDetectionMetrics
 from torch.utils.data import DataLoader
@@ -55,25 +55,43 @@ def parse_args():
 
 def load_model(checkpoint_path: str, device: str) -> tuple:
     """Load model from checkpoint.
-    
+
     Returns:
         model, config
     """
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     config = checkpoint['config']
-    
-    # Create model
-    model = GammaNet(
-        config=config['model'],
-        input_channels=3,
-        output_channels=1
-    )
-    
-    # Load weights
-    model.load_state_dict(checkpoint['model_state_dict'])
+
+    # Determine which model to use based on config
+    model_config = config['model']
+    use_backbone = model_config.get('use_backbone', False)
+    model_version = model_config.get('model_version', 'v1')
+
+    # Create appropriate model
+    if use_backbone:
+        if model_version == 'v2':
+            model = VGG16GammaNetV2(config=model_config)
+        else:
+            model = VGG16GammaNet(config=model_config)
+    else:
+        model = GammaNet(
+            config=model_config,
+            input_channels=3,
+            output_channels=1
+        )
+
+    # Load weights (filter out hidden state buffers)
+    state_dict = checkpoint['model_state_dict']
+    # Remove hidden state buffers that were saved during training
+    filtered_state_dict = {k: v for k, v in state_dict.items()
+                           if not (k.startswith('h_block') or k.startswith('h0_') or
+                                   k.startswith('h1_') or k.startswith('h2_') or
+                                   k.startswith('h3_') or k.startswith('td_h'))}
+
+    model.load_state_dict(filtered_state_dict, strict=False)
     model = model.to(device)
     model.eval()
-    
+
     return model, config
 
 
@@ -153,10 +171,11 @@ def evaluate(model, dataloader, device, use_tta=False, save_predictions=False, o
             # Standard prediction
             logits = model(images)
             pred = torch.sigmoid(logits).cpu()
-            
+
         # Update metrics
         metrics.update(pred, targets)
-        
+        from matplotlib import pyplot as plt
+        f = plt.figure();plt.subplot(121);plt.imshow(pred.cpu().squeeze());plt.subplot(122);plt.imshow(targets.cpu().squeeze());plt.show()
         # Store for ODS/OIS computation
         for p, t in zip(pred, targets):
             all_predictions.append(p.squeeze().numpy())
@@ -198,6 +217,7 @@ def main():
         root_dir=args.data_dir,
         split=args.split,
         transform=transform,
+        thin_edges=False,  # Keep continuous-valued ground truth for proper evaluation
         cache_data=False  # Don't cache for evaluation
     )
     

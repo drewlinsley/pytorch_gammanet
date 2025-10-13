@@ -385,7 +385,8 @@ def create_summary_figure(all_results: Dict,
     ax_b = fig.add_subplot(gs[0, 1])
     if 'contrast_response' in all_results:
         data = all_results['contrast_response']
-        ax_b.semilogx(data['contrasts'] * 100, data['responses'], 'o-', linewidth=2)
+        contrasts_pct = np.array(data['contrasts']) * 100
+        ax_b.semilogx(contrasts_pct, data['responses'], 'o-', linewidth=2)
         ax_b.set_xlabel('Contrast (%)')
         ax_b.set_ylabel('Response')
         ax_b.set_title('B. Contrast Response')

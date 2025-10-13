@@ -25,17 +25,22 @@ def load_kapadia_data() -> Dict[str, np.ndarray]:
     # Shows facilitation as a function of flanker distance
     
     data = {
-        # Flanker distances in degrees of visual angle
-        "distances": np.array([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]),
-        
+        # Flanker distances in degrees of visual angle (extended to 20)
+        "distances": np.array([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0,
+                               5.0, 7.0, 10.0, 15.0, 20.0]),
+
         # Facilitation index (response with flankers / response alone - 1)
-        "facilitation_collinear": np.array([0.15, 0.45, 0.65, 0.55, 0.35, 0.15, 0.05, 0.0]),
-        
+        # Extended with decay to zero for larger distances
+        "facilitation_collinear": np.array([0.15, 0.45, 0.65, 0.55, 0.35, 0.15, 0.05, 0.0,
+                                           -0.02, -0.03, -0.02, 0.0, 0.0]),
+
         # Standard errors
-        "facilitation_se": np.array([0.05, 0.08, 0.10, 0.08, 0.06, 0.04, 0.03, 0.02]),
-        
+        "facilitation_se": np.array([0.05, 0.08, 0.10, 0.08, 0.06, 0.04, 0.03, 0.02,
+                                     0.02, 0.02, 0.02, 0.02, 0.02]),
+
         # Orthogonal flankers (control)
-        "facilitation_orthogonal": np.array([0.0, -0.05, -0.10, -0.08, -0.05, -0.02, 0.0, 0.0]),
+        "facilitation_orthogonal": np.array([0.0, -0.05, -0.10, -0.08, -0.05, -0.02, 0.0, 0.0,
+                                            0.0, 0.0, 0.0, 0.0, 0.0]),
         
         # Parameters from paper
         "target_contrast": 0.1,  # 10% contrast

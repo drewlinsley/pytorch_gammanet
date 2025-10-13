@@ -3,9 +3,9 @@
 from .gammanet import GammaNet
 from .gammanet_backbone import GammaNetBackbone
 from .vgg16_gammanet import VGG16GammaNet
-from .vgg16_gammanet_v2 import VGG16GammaNetV2  # New v2 model
+from .vgg16_gammanet_v2 import VGG16GammaNetV2
 from .components.fgru import fGRU
-from .components.fgru_v2 import fGRUv2  # New v2 fGRU
+from .components.fgru_v2 import fGRUv2
 from .ablations import (
     # Connectivity ablations
     GammaNetFFOnly,
@@ -37,7 +37,7 @@ __all__ = [
     "fGRUv2",
     # Connectivity ablations
     "GammaNetFFOnly",
-    "GammaNetHOnly", 
+    "GammaNetHOnly",
     "GammaNetTDOnly",
     "GammaNetNoRecurrence",
     "GammaNetBottomUpOnly",

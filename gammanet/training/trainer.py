@@ -113,22 +113,51 @@ class GammaNetTrainer:
         return model
     
     def _create_optimizer(self) -> torch.optim.Optimizer:
-        """Create optimizer."""
+        """Create optimizer with separate learning rates for VGG and fGRU."""
         opt_config = self.config['training']
         opt_type = opt_config.get('optimizer', 'adam')
         
+        # Get learning rates
+        fgru_lr = float(opt_config['learning_rate'])
+        vgg_lr = float(opt_config.get('vgg_learning_rate', fgru_lr))  # Default to same LR if not specified
+        weight_decay = float(opt_config.get('weight_decay', 0))
+        
+        # Separate VGG parameters from fGRU parameters
+        vgg_params = []
+        fgru_params = []
+        
+        # Check for VGG blocks in the model
+        vgg_found = False
+        for name, param in self.model.named_parameters():
+            # VGG parameters: block*_conv layers
+            if 'block' in name and '_conv' in name and not name.startswith('fgru') and not name.startswith('td_fgru'):
+                vgg_params.append(param)
+                vgg_found = True
+            else:
+                # Everything else is fGRU parameters
+                fgru_params.append(param)
+        
+        if vgg_found and self.accelerator.is_main_process:
+            self.accelerator.print(f"VGG params: {sum(p.numel() for p in vgg_params):,}, LR: {vgg_lr}")
+            self.accelerator.print(f"fGRU params: {sum(p.numel() for p in fgru_params):,}, LR: {fgru_lr}")
+        elif self.accelerator.is_main_process:
+            self.accelerator.print(f"No VGG backbone found, using single LR: {fgru_lr}")
+            # Move all params to fGRU group if no VGG found
+            if vgg_params:
+                fgru_params.extend(vgg_params)
+                vgg_params = []
+        
+        # Create parameter groups
+        param_groups = []
+        if vgg_params:
+            param_groups.append({'params': vgg_params, 'lr': vgg_lr, 'weight_decay': weight_decay})
+        if fgru_params:
+            param_groups.append({'params': fgru_params, 'lr': fgru_lr, 'weight_decay': weight_decay})
+        
         if opt_type == 'adam':
-            optimizer = Adam(
-                self.model.parameters(),
-                lr=float(opt_config['learning_rate']),
-                weight_decay=float(opt_config.get('weight_decay', 0))
-            )
+            optimizer = Adam(param_groups)
         elif opt_type == 'adamw':
-            optimizer = AdamW(
-                self.model.parameters(),
-                lr=float(opt_config['learning_rate']),
-                weight_decay=float(opt_config.get('weight_decay', 0.01))
-            )
+            optimizer = AdamW(param_groups)
         else:
             raise ValueError(f"Unknown optimizer: {opt_type}")
             
@@ -244,11 +273,11 @@ class GammaNetTrainer:
             with self.accelerator.accumulate(self.model):
                 predictions = self.model(images)
                 loss = self.criterion(predictions, targets)
-                import pdb;pdb.set_trace()
-                from matplotlib import pyplot as plt
-                im = images.cpu()
-                im = (im.permute(0,2,3,1).squeeze() - im.permute(0,2,3,1).squeeze().min(0)[0].min(0)[0]) / (im.permute(0,2,3,1).squeeze().max(0)[0].max(0)[0] - im.permute(0,2,3,1).squeeze().min(0)[0].min(0)[0])
-                plt.subplot(121);plt.imshow(im);plt.subplot(122);plt.imshow(torch.sigmoid(predictions.squeeze().detach().cpu()));plt.savefig("temp.png");plt.show()
+                # import pdb;pdb.set_trace()
+                # from matplotlib import pyplot as plt
+                # im = images.cpu()
+                # im = (im.permute(0,2,3,1).squeeze() - im.permute(0,2,3,1).squeeze().min(0)[0].min(0)[0]) / (im.permute(0,2,3,1).squeeze().max(0)[0].max(0)[0] - im.permute(0,2,3,1).squeeze().min(0)[0].min(0)[0])
+                # plt.subplot(121);plt.imshow(im);plt.subplot(122);plt.imshow(torch.sigmoid(predictions.squeeze().detach().cpu()));plt.savefig("temp.png");plt.show()
                 
                 # Backward pass
                 self.accelerator.backward(loss)
@@ -277,11 +306,21 @@ class GammaNetTrainer:
             
             # Log to wandb
             if self.accelerator.is_main_process and self.config['logging'].get('wandb', False):
-                wandb.log({
+                log_dict = {
                     'train/loss': loss.item(),
-                    'train/lr': self.optimizer.param_groups[0]['lr'],
                     'global_step': self.global_step
-                })
+                }
+                
+                # Log learning rates for all parameter groups
+                if len(self.optimizer.param_groups) > 1:
+                    # Multiple learning rates (VGG + fGRU)
+                    log_dict['train/lr_vgg'] = self.optimizer.param_groups[0]['lr']  # VGG (first group)
+                    log_dict['train/lr_fgru'] = self.optimizer.param_groups[1]['lr']  # fGRU (second group)
+                else:
+                    # Single learning rate
+                    log_dict['train/lr'] = self.optimizer.param_groups[0]['lr']
+                
+                wandb.log(log_dict)
                 
             self.global_step += 1
             

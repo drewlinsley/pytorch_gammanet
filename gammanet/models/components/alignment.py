@@ -14,17 +14,14 @@ class DistributionAlignment(nn.Module):
     
     The alignment consists of:
     1. A 1x1 convolution for channel-wise transformation
-    2. Learnable scale and shift parameters for distribution matching
-    3. ReLU activation to match VGG's activation pattern
+    2. ReLU activation to match VGG's activation pattern
     """
     
-    def __init__(self, channels: int, init_scale: float = 1.0, init_shift: float = 0.0):
+    def __init__(self, channels: int):
         """Initialize the distribution alignment layer.
         
         Args:
             channels: Number of input/output channels
-            init_scale: Initial value for scale parameter (default: 1.0)
-            init_shift: Initial value for shift parameter (default: 0.0)
         """
         super().__init__()
         
@@ -32,10 +29,6 @@ class DistributionAlignment(nn.Module):
         
         # 1x1 convolution for channel-wise transformation
         self.projection = nn.Conv2d(channels, channels, kernel_size=1, bias=True)
-        
-        # Learnable scale and shift parameters for distribution adjustment
-        self.scale = nn.Parameter(torch.ones(1, channels, 1, 1) * init_scale)
-        self.shift = nn.Parameter(torch.zeros(1, channels, 1, 1) + init_shift)
         
         # Initialize projection to near-identity
         self._initialize_weights()
@@ -57,9 +50,6 @@ class DistributionAlignment(nn.Module):
         """
         # Apply channel-wise projection
         x = self.projection(x)
-        
-        # Apply scale and shift for distribution matching
-        x = x * self.scale + self.shift
         
         # Apply ReLU to match VGG's activation pattern (non-negative)
         x = F.relu(x)

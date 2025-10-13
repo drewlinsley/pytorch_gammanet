@@ -95,7 +95,14 @@ class OrientationTuningAnalyzer:
                 }
                 
                 # Calculate bandwidth (HWHM)
-                bandwidth = np.degrees(np.arccos(1 + np.log(0.5) / popt[1]) / 2)
+                # Handle cases where kappa is too small
+                arccos_arg = 1 + np.log(0.5) / popt[1]
+                if arccos_arg < -1:
+                    bandwidth = 180.0  # Very broad tuning
+                elif arccos_arg > 1:
+                    bandwidth = 0.0  # Very sharp tuning (shouldn't happen)
+                else:
+                    bandwidth = np.degrees(np.arccos(arccos_arg) / 2)
                 
             else:  # gaussian
                 # Use wrapped Gaussian for circular data

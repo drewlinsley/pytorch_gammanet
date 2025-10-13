@@ -41,46 +41,105 @@ class ResponseExtractor:
     def _analyze_model_structure(self) -> Dict[str, Dict]:
         """Analyze model to identify layers and their properties."""
         layer_info = {}
-        
-        # Identify encoder layers
-        for i, layer in enumerate(self.model.encoder_layers):
-            name = f"encoder_{i}"
-            layer_info[name] = {
-                "module": layer,
-                "type": "encoder",
-                "depth": i,
-                "receptive_field": self._estimate_rf_size(i, "encoder")
-            }
-            
-        # Identify decoder layers
-        for i, layer in enumerate(self.model.decoder_layers):
-            name = f"decoder_{i}"
-            layer_info[name] = {
-                "module": layer,
-                "type": "decoder", 
-                "depth": i,
-                "receptive_field": self._estimate_rf_size(i, "decoder")
-            }
-            
+
+        # Check if this is a VGG-based model or standard GammaNet
+        model_name = self.model.__class__.__name__
+
+        if "VGG16" in model_name:
+            # For VGG16GammaNet and VGG16GammaNetV2
+            # Extract fGRU layers (these are the key recurrent layers)
+            fgru_layers = []
+            for name, module in self.model.named_modules():
+                if 'fgru' in name.lower() and not isinstance(module, nn.ModuleList):
+                    fgru_layers.append((name, module))
+
+            for i, (name, module) in enumerate(fgru_layers):
+                layer_info[name] = {
+                    "module": module,
+                    "type": "fgru",
+                    "depth": i,
+                    "receptive_field": self._estimate_rf_size(i, "fgru")
+                }
+
+            # Also add VGG blocks for feature extraction
+            if hasattr(self.model, 'block1_conv'):
+                layer_info['block1_conv'] = {
+                    "module": self.model.block1_conv,
+                    "type": "conv",
+                    "depth": 0,
+                    "receptive_field": 3
+                }
+            if hasattr(self.model, 'block2_conv'):
+                layer_info['block2_conv'] = {
+                    "module": self.model.block2_conv,
+                    "type": "conv",
+                    "depth": 1,
+                    "receptive_field": 5
+                }
+            # Add more blocks as needed
+
+        else:
+            # Standard GammaNet
+            # Identify encoder layers
+            if hasattr(self.model, 'encoder_layers'):
+                for i, layer in enumerate(self.model.encoder_layers):
+                    name = f"encoder_{i}"
+                    layer_info[name] = {
+                        "module": layer,
+                        "type": "encoder",
+                        "depth": i,
+                        "receptive_field": self._estimate_rf_size(i, "encoder")
+                    }
+
+            # Identify decoder layers
+            if hasattr(self.model, 'decoder_layers'):
+                for i, layer in enumerate(self.model.decoder_layers):
+                    name = f"decoder_{i}"
+                    layer_info[name] = {
+                        "module": layer,
+                        "type": "decoder",
+                        "depth": i,
+                        "receptive_field": self._estimate_rf_size(i, "decoder")
+                    }
+
         return layer_info
     
     def _estimate_rf_size(self, layer_idx: int, layer_type: str) -> int:
         """Estimate receptive field size for a layer.
-        
+
         Simple estimation based on layer depth and kernel sizes.
         """
-        # Base RF from input convolution
-        rf = 7  # Assuming 7x7 input conv
-        
-        # Add contribution from each layer
-        if layer_type == "encoder":
-            # Each encoder layer adds based on fGRU kernel size
-            # Rough estimate: each 3x3 kernel adds 2 pixels per side
-            rf += layer_idx * 2 * 3  # 3 timesteps
+        model_name = self.model.__class__.__name__
+
+        if "VGG16" in model_name:
+            # VGG16 has known receptive field sizes
+            # Approximate RF sizes for VGG layers
+            vgg_rf_map = {
+                0: 3,    # block1: 3x3
+                1: 5,    # block2: 5x5
+                2: 10,   # block3: 10x10
+                3: 19,   # block4: 19x19
+                4: 37,   # block5: 37x37
+            }
+            rf = vgg_rf_map.get(layer_idx, 37)
+            # Add contribution from recurrent processing
+            rf += 4 * 2  # 4 timesteps, each adds ~2 pixels
         else:
-            # Decoder layers have varying impact
-            rf += (len(self.model.encoder_layers) + layer_idx) * 2 * 3
-            
+            # Standard GammaNet estimation
+            rf = 7  # Base RF from input conv
+
+            # Add contribution from each layer
+            if layer_type == "encoder":
+                # Each encoder layer adds based on fGRU kernel size
+                rf += layer_idx * 2 * 3  # 3 timesteps
+            elif layer_type == "decoder":
+                # Decoder layers have varying impact
+                # Use a fixed estimate if encoder_layers doesn't exist
+                num_encoder = 5  # Default assumption
+                if hasattr(self.model, 'encoder_layers'):
+                    num_encoder = len(self.model.encoder_layers)
+                rf += (num_encoder + layer_idx) * 2 * 3
+
         return rf
     
     def register_hooks(self, 
@@ -169,13 +228,23 @@ class ResponseExtractor:
         
         # Organize responses by layer and timestep
         organized_responses = {}
-        
+
         for key, activations in self.responses.items():
-            layer_name = key.split('_')[0]
-            
+            # Handle response type suffix (e.g., "_hidden_state")
+            if key.endswith('_hidden_state'):
+                layer_name = key[:-len('_hidden_state')]
+            elif key.endswith('_gates'):
+                layer_name = key[:-len('_gates')]
+            else:
+                layer_name = key
+
             if layer_name not in organized_responses:
                 organized_responses[layer_name] = []
-                
+
+            # Skip if layer not in layer_info (safety check)
+            if layer_name not in self.layer_info:
+                continue
+
             # Create LayerResponse objects for each timestep
             for t, activation in enumerate(activations):
                 if timesteps is None or t in timesteps:
@@ -395,9 +464,16 @@ def extract_layer_responses(model: nn.Module,
 
 def get_v1_like_layers(model: nn.Module) -> List[str]:
     """Identify V1-like layers in the model.
-    
+
     Returns layers that are likely to have V1-like properties based on
     their position in the hierarchy.
     """
-    # Typically layers 2-3 of encoder are most V1-like
-    return ["encoder_1", "encoder_2", "encoder_3"]
+    model_name = model.__class__.__name__
+
+    if "VGG16" in model_name:
+        # For VGG models, fGRU layers at intermediate depths are V1-like
+        # fgru_0 and fgru_1 correspond to conv2_2 and conv3_3 which are V1/V2-like
+        return ["fgru_0", "fgru_1", "fgru_block1"]
+    else:
+        # Typically layers 2-3 of encoder are most V1-like in standard GammaNet
+        return ["encoder_1", "encoder_2", "encoder_3"]

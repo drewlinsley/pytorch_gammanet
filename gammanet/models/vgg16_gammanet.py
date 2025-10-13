@@ -217,15 +217,17 @@ class VGG16GammaNet(nn.Module):
         # Initialize hidden states if needed
         if self.h_block1 is None or self.h_block1.shape[0] != batch_size:
             self.init_hidden_states(batch_size, x.shape[2], x.shape[3], device)
+        
+        # Compute Block 1 VGG features once (before timestep loop)
+        vgg_block1_features = self.block1_conv(x)
             
         # Process through timesteps
         for t in range(self.timesteps):
             # === Bottom-up pass ===
             
-            # Block 1: conv1 layers + fGRU
-            x1 = self.block1_conv(x)
+            # Block 1: Use pre-computed VGG features + fGRU
             # Apply fGRU after conv1_2
-            self.h_block1, _ = self.fgru_block1(x1, self.h_block1)
+            self.h_block1, _ = self.fgru_block1(vgg_block1_features, self.h_block1)
             # Apply distribution alignment before pooling
             aligned_block1 = self.align_block1(self.h_block1)
             x1 = self.pool1(aligned_block1)  # Pool aligned output

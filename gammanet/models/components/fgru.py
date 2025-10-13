@@ -36,9 +36,14 @@ class DynamicParameters(nn.Module):
         
         # Network for computing inhibition parameters (alpha, mu)
         # Takes concatenated [h, c1, ff_input] as input
+        # Ensure num_groups divides channels evenly
+        num_groups = min(8, channels)
+        while channels % num_groups != 0 and num_groups > 1:
+            num_groups -= 1
+
         self.inhibition_net = nn.Sequential(
             nn.Conv2d(channels * 3, channels, kernel_size=1),
-            nn.GroupNorm(min(8, channels), channels),
+            nn.GroupNorm(num_groups, channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(channels, channels * 2, kernel_size=1)  # Output raw alpha and mu
         )
@@ -47,7 +52,7 @@ class DynamicParameters(nn.Module):
         # Takes concatenated [h1, c2] as input
         self.excitation_net = nn.Sequential(
             nn.Conv2d(channels * 2, channels, kernel_size=1),
-            nn.GroupNorm(min(8, channels), channels),
+            nn.GroupNorm(num_groups, channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(channels, channels * 2, kernel_size=1)  # Output raw kappa and omega
         )
