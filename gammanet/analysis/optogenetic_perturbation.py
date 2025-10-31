@@ -1501,7 +1501,8 @@ def visualize_recurrent_flow(
 def visualize_multi_orientation_optimization(
     multi_ori_data: Dict,
     save_path: Optional[Path] = None,
-    show_individual: bool = True
+    show_individual: bool = True,
+    aggregation: str = 'mean'
 ):
     """Visualize multi-orientation optimization results.
 
@@ -1511,15 +1512,23 @@ def visualize_multi_orientation_optimization(
         multi_ori_data: Output from optimize_circuit_response_multi_orientation()
         save_path: Optional path to save figure
         show_individual: If True, show individual orientations + rotated (default: True)
+        aggregation: How to aggregate across channels: 'mean', 'max', or 'both'
     """
     # Extract averaged adjustments
     adj_exc_avg = multi_ori_data['adjustment_exc_avg'].cpu().numpy()[0]  # [C, H, W]
     adj_inh_avg = multi_ori_data['adjustment_inh_avg'].cpu().numpy()[0]
 
-    # Average over channels
-    adj_exc_avg_mean = np.mean(adj_exc_avg, axis=0)  # [H, W]
-    adj_inh_avg_mean = np.mean(adj_inh_avg, axis=0)
-    adj_diff_avg_mean = adj_exc_avg_mean - adj_inh_avg_mean
+    # Aggregate over channels based on method
+    if aggregation == 'mean':
+        adj_exc_avg_spatial = np.mean(adj_exc_avg, axis=0)  # [H, W]
+        adj_inh_avg_spatial = np.mean(adj_inh_avg, axis=0)
+    elif aggregation == 'max':
+        adj_exc_avg_spatial = np.max(adj_exc_avg, axis=0)  # [H, W]
+        adj_inh_avg_spatial = np.max(adj_inh_avg, axis=0)
+    else:
+        raise ValueError(f"aggregation must be 'mean' or 'max', got {aggregation}")
+
+    adj_diff_avg_spatial = adj_exc_avg_spatial - adj_inh_avg_spatial
 
     orientations = multi_ori_data['orientations']
     loss_curves = multi_ori_data['loss_curves']
@@ -1535,23 +1544,23 @@ def visualize_multi_orientation_optimization(
         axes_avg = [fig.add_subplot(gs[0, i]) for i in range(3)]
 
         # Plot averaged E, I, E-I
-        non_zero_exc = adj_exc_avg_mean[adj_exc_avg_mean != 0]
+        non_zero_exc = adj_exc_avg_spatial[adj_exc_avg_spatial != 0]
         vmax_exc = np.percentile(np.abs(non_zero_exc), 97.5) if len(non_zero_exc) > 0 else 0.1
 
-        im0 = axes_avg[0].imshow(adj_exc_avg_mean, cmap='Reds', vmin=0, vmax=vmax_exc, interpolation='nearest')
-        axes_avg[0].set_title('Averaged Excitatory\n(Orientation-Invariant)', fontweight='bold')
+        im0 = axes_avg[0].imshow(adj_exc_avg_spatial, cmap='Reds', vmin=0, vmax=vmax_exc, interpolation='nearest')
+        axes_avg[0].set_title(f'Averaged Excitatory ({aggregation.capitalize()})\n(Orientation-Invariant)', fontweight='bold')
         axes_avg[0].axis('off')
         plt.colorbar(im0, ax=axes_avg[0], fraction=0.046)
 
-        non_zero_inh = adj_inh_avg_mean[adj_inh_avg_mean != 0]
+        non_zero_inh = adj_inh_avg_spatial[adj_inh_avg_spatial != 0]
         vmax_inh = np.percentile(np.abs(non_zero_inh), 97.5) if len(non_zero_inh) > 0 else 0.1
 
-        im1 = axes_avg[1].imshow(adj_inh_avg_mean, cmap='Blues', vmin=0, vmax=vmax_inh, interpolation='nearest')
-        axes_avg[1].set_title('Averaged Inhibitory\n(Orientation-Invariant)', fontweight='bold')
+        im1 = axes_avg[1].imshow(adj_inh_avg_spatial, cmap='Blues', vmin=0, vmax=vmax_inh, interpolation='nearest')
+        axes_avg[1].set_title(f'Averaged Inhibitory ({aggregation.capitalize()})\n(Orientation-Invariant)', fontweight='bold')
         axes_avg[1].axis('off')
         plt.colorbar(im1, ax=axes_avg[1], fraction=0.046)
 
-        non_zero_diff = adj_diff_avg_mean[adj_diff_avg_mean != 0]
+        non_zero_diff = adj_diff_avg_spatial[adj_diff_avg_spatial != 0]
         if len(non_zero_diff) > 0:
             vmin_diff = np.percentile(non_zero_diff, 2.5)
             vmax_diff = np.percentile(non_zero_diff, 97.5)
@@ -1560,8 +1569,8 @@ def visualize_multi_orientation_optimization(
         else:
             vmin_diff, vmax_diff = -0.1, 0.1
 
-        im2 = axes_avg[2].imshow(adj_diff_avg_mean, cmap='RdBu_r', vmin=vmin_diff, vmax=vmax_diff, interpolation='nearest')
-        axes_avg[2].set_title('Averaged E-I Balance\n(Orientation-Invariant)', fontweight='bold')
+        im2 = axes_avg[2].imshow(adj_diff_avg_spatial, cmap='RdBu_r', vmin=vmin_diff, vmax=vmax_diff, interpolation='nearest')
+        axes_avg[2].set_title(f'Averaged E-I Balance ({aggregation.capitalize()})\n(Orientation-Invariant)', fontweight='bold')
         axes_avg[2].axis('off')
         plt.colorbar(im2, ax=axes_avg[2], fraction=0.046)
 
@@ -1595,23 +1604,23 @@ def visualize_multi_orientation_optimization(
         ax_loss = fig.add_subplot(gs[1, :])
 
         # Plot averaged E, I, E-I
-        non_zero_exc = adj_exc_avg_mean[adj_exc_avg_mean != 0]
+        non_zero_exc = adj_exc_avg_spatial[adj_exc_avg_spatial != 0]
         vmax_exc = np.percentile(np.abs(non_zero_exc), 97.5) if len(non_zero_exc) > 0 else 0.1
 
-        im0 = axes[0].imshow(adj_exc_avg_mean, cmap='Reds', vmin=0, vmax=vmax_exc, interpolation='nearest')
-        axes[0].set_title('Averaged Excitatory (Orientation-Invariant)')
+        im0 = axes[0].imshow(adj_exc_avg_spatial, cmap='Reds', vmin=0, vmax=vmax_exc, interpolation='nearest')
+        axes[0].set_title(f'Averaged Excitatory ({aggregation.capitalize()})')
         axes[0].axis('off')
         plt.colorbar(im0, ax=axes[0])
 
-        non_zero_inh = adj_inh_avg_mean[adj_inh_avg_mean != 0]
+        non_zero_inh = adj_inh_avg_spatial[adj_inh_avg_spatial != 0]
         vmax_inh = np.percentile(np.abs(non_zero_inh), 97.5) if len(non_zero_inh) > 0 else 0.1
 
-        im1 = axes[1].imshow(adj_inh_avg_mean, cmap='Blues', vmin=0, vmax=vmax_inh, interpolation='nearest')
-        axes[1].set_title('Averaged Inhibitory (Orientation-Invariant)')
+        im1 = axes[1].imshow(adj_inh_avg_spatial, cmap='Blues', vmin=0, vmax=vmax_inh, interpolation='nearest')
+        axes[1].set_title(f'Averaged Inhibitory ({aggregation.capitalize()})')
         axes[1].axis('off')
         plt.colorbar(im1, ax=axes[1])
 
-        non_zero_diff = adj_diff_avg_mean[adj_diff_avg_mean != 0]
+        non_zero_diff = adj_diff_avg_spatial[adj_diff_avg_spatial != 0]
         if len(non_zero_diff) > 0:
             vmin_diff = np.percentile(non_zero_diff, 2.5)
             vmax_diff = np.percentile(non_zero_diff, 97.5)
@@ -1620,8 +1629,8 @@ def visualize_multi_orientation_optimization(
         else:
             vmin_diff, vmax_diff = -0.1, 0.1
 
-        im2 = axes[2].imshow(adj_diff_avg_mean, cmap='RdBu_r', vmin=vmin_diff, vmax=vmax_diff, interpolation='nearest')
-        axes[2].set_title('Averaged E-I Balance')
+        im2 = axes[2].imshow(adj_diff_avg_spatial, cmap='RdBu_r', vmin=vmin_diff, vmax=vmax_diff, interpolation='nearest')
+        axes[2].set_title(f'Averaged E-I Balance ({aggregation.capitalize()})')
         axes[2].axis('off')
         plt.colorbar(im2, ax=axes[2])
 
@@ -1635,7 +1644,7 @@ def visualize_multi_orientation_optimization(
         ax_loss.legend(ncol=len(orientations)//2, fontsize=8)
         ax_loss.grid(True, alpha=0.3)
 
-        plt.suptitle(f'Multi-Orientation Optimization: Orientation-Invariant RF Structure\n({len(orientations)} orientations averaged)',
+        plt.suptitle(f'Multi-Orientation Optimization ({aggregation.capitalize()} aggregation)\n({len(orientations)} orientations averaged)',
                      fontsize=14, fontweight='bold')
 
     plt.tight_layout()

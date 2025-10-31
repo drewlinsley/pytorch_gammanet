@@ -458,15 +458,12 @@ class fGRUv2(nn.Module):
         inhibited_signal = F.relu(ff_input - inhibition)  # Rectify to ensure these are rates
         return inhibited_signal
 
-    def apply_excitation(self, exc_input: torch.Tensor, exc_horizontals: torch.Tensor) -> torch.Tensor:
+    def apply_excitation(self, exc_input: torch.Tensor, exc_horizontals: torch.Tensor, h_exc_prev: torch.Tensor) -> torch.Tensor:
         """Apply excitation and output gating.
 
-                h_exc_new = self.apply_excitation(exc_input, exc_horizontals)
         Args:
-            inhibited_signal: Post-inhibition signal [B, C, H, W]
-            h_exc: Current excitatory state [B, C, H, W]
-            c2: Excitatory circuit output [B, C, H, W]
-            g2: Output gate [B, C, H, W]
+            exc_input: Post-inhibition signal (h_inh_new) [B, C, H, W]
+            exc_horizontals: Excitatory circuit output [B, C, H, W]
             h_exc_prev: Previous excitatory state [B, C, H, W]
 
         Returns:
@@ -476,7 +473,7 @@ class fGRUv2(nn.Module):
             # Get integration parameters - either static or dynamic
             if self.use_dynamic_parameters:
                 # Compute dynamic parameters based on inhibited signal and excitatory state
-                kappa, omega = self.dynamic_params.compute_excitation_params(exc_input, exc_horizontals)
+                kappa, omega = self.dynamic_params.compute_excitation_params(exc_input, h_exc_prev)
             else:
                 # Use static parameters
                 kappa = self.kappa.view(1, -1, 1, 1)
@@ -531,13 +528,13 @@ class fGRUv2(nn.Module):
         # 4. Update inhibitory state with gating
         h_inh_new = (1 - inh_gate) * h_inh_prev + inh_gate * inhibited_signal
 
-        #### Inputs to Inh cells are h_exc_prev and h_inh_new (functions as the FF drive)
+        #### Inputs to Exc cells are h_exc_prev and h_inh_new (functions as the FF drive)
         # 5. Excitatory circuit from excitatory population
         exc_input = h_inh_new  # Renaming to make it easier to understand
         exc_horizontals = self.circuit_output(exc_input)
 
         # 6. Apply excitation and output gating
-        h_exc_new = self.apply_excitation(exc_input, exc_horizontals)
+        h_exc_new = self.apply_excitation(exc_input, exc_horizontals, h_exc_prev)
 
         # 7. Compute output gate from updated inhibitory state and previous excitatory state
         exc_gate = self.compute_output_gate(exc_input, h_exc_new, h_exc_prev)

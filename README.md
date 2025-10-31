@@ -244,6 +244,10 @@ Simulate optogenetic manipulations to reveal recurrent circuit structure:
 This experiment perturbs the feedforward input and learns what initial E/I states in the surround would rescue orientation decoding. By optimizing across multiple orientations and averaging, it reveals the **orientation-invariant recurrent receptive field structure**.
 
 ```bash
+# With trained checkpoint (recommended)
+python scripts/test_orientation_opto.py --checkpoint logs/checkpoints/checkpoint_epoch_5.pt
+
+# With untrained model (for testing)
 python scripts/test_orientation_opto.py
 ```
 
@@ -269,6 +273,68 @@ python scripts/test_orientation_opto.py
 - Reveals fundamental recurrent connectivity pattern
 - Shows how surround rescues perturbed center
 - Orientation-invariant structure indicates canonical RF topology
+
+---
+
+#### **Center vs. Surround Contrast Grid (Hybrid Stimuli)**
+
+This experiment tests how center-surround contrast interactions affect the recurrent compensation mechanism using hybrid stimuli where center and surround have different contrasts. This is the recommended version with corrected experimental design.
+
+```bash
+# With trained checkpoint (recommended)
+python scripts/test_orientation_opto_contrast_grid_hybrid.py --checkpoint logs/checkpoints/checkpoint_epoch_5.pt
+
+# With untrained model (for testing)
+python scripts/test_orientation_opto_contrast_grid_hybrid.py
+```
+
+**What it does**:
+1. Trains decoder ONCE on 100% contrast CRF-only gratings
+2. Tests multiple center contrasts: [0.25, 0.5, 0.75, 1.0]
+3. Tests multiple surround contrasts: [0.25, 0.5, 0.75, 1.0]
+4. For each (center, surround) pair:
+   - Generates hybrid stimuli (center at center_contrast, surround at surround_contrast)
+   - Runs multi-orientation optimization
+   - Saves visualizations with both mean and max channel aggregation
+5. Analyzes how contrast ratio affects recurrent rescue
+
+**Output**:
+- `results/orientation_opto_contrast_grid_hybrid/contrast_grid_ei_balance_mean.png` - E-I balance grid (mean)
+- `results/orientation_opto_contrast_grid_hybrid/contrast_grid_ei_balance_max.png` - E-I balance grid (max)
+- `results/orientation_opto_contrast_grid_hybrid/contrast_grid_metrics_mean.png` - Summary metrics (mean)
+- `results/orientation_opto_contrast_grid_hybrid/contrast_grid_metrics_max.png` - Summary metrics (max)
+- `results/orientation_opto_contrast_grid_hybrid/center_X.XX_surround_Y.YY/` - Individual conditions
+  - `optimization_results_mean.png` - Mean channel aggregation
+  - `optimization_results_max.png` - Max channel aggregation
+- `results/orientation_opto_contrast_grid_hybrid/summary.txt` - Numerical results
+
+**Key Improvements**:
+- Decoder trained once at fixed contrast (eliminates decoder-stimulus mismatch)
+- Hybrid stimuli enable true center-surround contrast manipulation
+- Both mean and max aggregation visualizations reveal different aspects of spatial structure
+- Expected pattern: Excitatory adjustments stronger near center, inhibitory stronger in periphery
+
+**Key Questions**:
+- Does matched contrast (diagonal) show consistent rescue mechanism?
+- How does surround dominance (above diagonal) affect recurrence?
+- Does center drive compensation when center > surround (below diagonal)?
+- How does E/I balance shift with contrast ratio?
+
+---
+
+#### **Center vs. Surround Contrast Grid (Original)**
+
+Original version where decoder is retrained for each center contrast. Retained for comparison.
+
+```bash
+# With trained checkpoint
+python scripts/test_orientation_opto_contrast_grid.py --checkpoint logs/checkpoints/checkpoint_epoch_5.pt
+
+# With untrained model
+python scripts/test_orientation_opto_contrast_grid.py
+```
+
+**Note**: This version has a decoder-stimulus contrast mismatch issue. Use the hybrid version above for more accurate results.
 
 ---
 
@@ -299,7 +365,9 @@ pytorch_gammanet/
 │   ├── train.py                # Training script
 │   ├── evaluate.py             # Evaluation script
 │   ├── run_insilico.py         # In silico experiments
-│   └── test_orientation_opto.py # Optogenetic simulations
+│   ├── test_orientation_opto.py # Optogenetic simulations
+│   ├── test_orientation_opto_contrast_grid.py # Contrast grid (original)
+│   └── test_orientation_opto_contrast_grid_hybrid.py # Contrast grid (hybrid, recommended)
 │
 ├── config/                      # Configuration files
 │   ├── default.yaml            # Default config

@@ -11,6 +11,7 @@ import yaml
 import torch
 from pathlib import Path
 from accelerate import Accelerator
+from accelerate.utils import DistributedDataParallelKwargs
 from torch.utils.data import DataLoader
 
 import sys
@@ -128,10 +129,12 @@ def main():
     # Load configuration
     config = load_config(args.config, args)
     
-    # Initialize accelerator
+    # Initialize accelerator with DDP kwargs for unused parameters
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(
         mixed_precision='fp16' if config['training'].get('mixed_precision', True) else 'no',
         gradient_accumulation_steps=config['training'].get('gradient_accumulation', 1),
+        kwargs_handlers=[ddp_kwargs]
     )
     
     # Print configuration

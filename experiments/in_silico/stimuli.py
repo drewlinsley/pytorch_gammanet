@@ -106,6 +106,65 @@ class BaseStimulus:
         dist_from_center = np.sqrt((x - self.center[1])**2 + (y - self.center[0])**2)
         mask = dist_from_center <= radius
         return mask.astype(np.float32)
+
+    def create_hybrid_center_surround_stimulus(
+        self,
+        orientation: float,
+        spatial_frequency: float,
+        center_contrast: float,
+        surround_contrast: float,
+        center_diameter: int,
+        surround_diameter: int,
+        phase: float = 0
+    ) -> np.ndarray:
+        """Create grating with different contrasts for center vs surround.
+
+        This creates a stimulus where the center region (≤ center_diameter) has
+        one contrast and the surround region (> center_diameter, ≤ surround_diameter)
+        has a different contrast. This allows testing center-surround contrast interactions.
+
+        Args:
+            orientation: Orientation in degrees
+            spatial_frequency: Cycles per image
+            center_contrast: Contrast for center region [0, 1]
+            surround_contrast: Contrast for surround region [0, 1]
+            center_diameter: Diameter of center region in pixels
+            surround_diameter: Diameter of surround region in pixels
+            phase: Phase offset
+
+        Returns:
+            Stimulus array with hybrid center-surround contrast [0, 1]
+        """
+        # Create base grating at unit contrast
+        grating = self.create_grating(orientation, spatial_frequency, phase, contrast=1.0)
+
+        # Create distance map from center
+        y, x = np.ogrid[:self.size[0], :self.size[1]]
+        dist_from_center = np.sqrt((x - self.center[1])**2 + (y - self.center[0])**2)
+
+        # Create masks for center, surround, and background
+        center_radius = center_diameter / 2.0
+        surround_radius = surround_diameter / 2.0
+
+        center_mask = (dist_from_center <= center_radius).astype(np.float32)
+        surround_mask = ((dist_from_center > center_radius) &
+                        (dist_from_center <= surround_radius)).astype(np.float32)
+        background_mask = (dist_from_center > surround_radius).astype(np.float32)
+
+        # Apply different contrasts to different regions
+        # grating is in [-1, 1], multiply by contrast then normalize to [0, 1]
+        stimulus = np.zeros_like(grating)
+
+        # Center region: grating * center_contrast, then normalize to [0, 1] with mean=0.5
+        stimulus += center_mask * (grating * center_contrast * 0.5 + 0.5)
+
+        # Surround region: grating * surround_contrast, then normalize to [0, 1] with mean=0.5
+        stimulus += surround_mask * (grating * surround_contrast * 0.5 + 0.5)
+
+        # Background: grey (0.5)
+        stimulus += background_mask * 0.5
+
+        return stimulus
     
     def create_annular_mask(self, inner_radius: int, outer_radius: int) -> np.ndarray:
         """Create annular (ring) mask."""
